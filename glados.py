@@ -18,7 +18,7 @@ from Levenshtein import distance
 from loguru import logger
 from sounddevice import CallbackFlags
 
-from glados import asr, tts, vad
+from glados import asr, tts, vad, visual
 from glados.llama import LlamaServer, LlamaServerConfig
 
 logger.remove(0)
@@ -119,10 +119,13 @@ class Glados:
 
         self._messages = personality_preprompt
         self.llm_queue: queue.Queue[str] = queue.Queue()
+        self.display_queue: queue.Queue[str] = queue.Queue()
         self.tts_queue: queue.Queue[str] = queue.Queue()
         self.processing = False
         self.currently_speaking = False
         self.interruptible = interruptible
+
+        self.projector = visual.Projector()
 
         self.shutdown_event = threading.Event()
 
@@ -133,6 +136,9 @@ class Glados:
 
         tts_thread = threading.Thread(target=self.process_TTS_thread)
         tts_thread.start()
+
+        visual_thread = threading.Thread(target=self.find_image)
+        visual_thread.start()
 
         if announcement:
             audio = self._tts.generate_speech_audio(announcement)
@@ -431,6 +437,7 @@ class Glados:
             if self.processing is False:
                 sd.stop()  # Stop the audio stream
                 self.tts_queue = queue.Queue()  # Clear the TTS queue
+                self.display_queue = queue.Queue()  # Clear the display queue
                 interrupted = True
                 break
 
@@ -496,6 +503,20 @@ class Glados:
                     self.tts_queue.put("<EOS>")  # Add end of stream token to the queue
             except queue.Empty:
                 time.sleep(PAUSE_TIME)
+     
+    def find_image(self):
+        """
+        Processes the detected text using the LLM model.
+
+        """
+        while not self.shutdown_event.is_set():
+            try:
+                detected_text = self.display_queue.get(timeout=PAUSE_TIME)
+                logger.error(f"EOS: {detected_text}")
+                self.projector.display_most_similar_image(detected_text)
+              
+            except queue.Empty:
+                time.sleep(PAUSE_TIME)
 
     def _process_sentence(self, current_sentence: List[str]):
         """
@@ -511,7 +532,8 @@ class Glados:
         sentence = sentence.replace("\n\n", ". ").replace("\n", ". ").replace("  ", " ").replace(":", " ")
         if sentence:
             self.tts_queue.put(sentence)
-
+            self.display_queue.put(sentence)
+            
     def _process_line(self, line):
         """
         Processes a single line of text from the LLM server.
