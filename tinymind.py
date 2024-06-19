@@ -290,14 +290,15 @@ class Glados:
         """
         logger.debug("Detected pause after speech. Processing...")
         self.input_stream.stop()
-
+        
+        start_time = time.time()
         detected_text = self.asr(self._samples)
 
         if detected_text:
             logger.success(f"ASR text: '{detected_text}'")
 
             if self.wake_word and not self._wakeword_detected(detected_text):
-                logger.info(f"Required wake word {self.wake_word=} not detected.")
+                logger.debug(f"Required wake word {self.wake_word=} not detected.")
             else:
                 self.llm_queue.put(detected_text)
                 self.processing = True
@@ -307,6 +308,7 @@ class Glados:
             while self.currently_speaking:
                 time.sleep(PAUSE_TIME)
 
+        logger.info(f"Total ASR time: {time.time() - start_time}")
         self.reset()
         self.input_stream.start()
 
@@ -349,6 +351,7 @@ class Glados:
 
         while not self.shutdown_event.is_set():
             try:
+                start_time = time.time()
                 generated_text = self.tts_queue.get(timeout=PAUSE_TIME)
 
                 if (
@@ -374,7 +377,7 @@ class Glados:
                                 generated_text, percentage_played
                             )
 
-                            logger.info(
+                            logger.debug(
                                 f"TTS interrupted at {percentage_played}%: {clipped_text}"
                             )
                             system_text = copy.deepcopy(assistant_text)
@@ -398,7 +401,8 @@ class Glados:
                     finished = False
                     interrupted = False
                     self.currently_speaking = False
-
+                logger.info(f"Total TTS time: {time.time() - start_time}")
+            
             except queue.Empty:
                 pass
 
@@ -457,6 +461,7 @@ class Glados:
         """
         while not self.shutdown_event.is_set():
             try:
+                start_time = time.time()
                 detected_text = self.llm_queue.get(timeout=0.1)
 
                 self.messages.append({"role": "user", "content": detected_text})
@@ -501,6 +506,9 @@ class Glados:
                         if sentence:
                             self._process_sentence(sentence)
                     self.tts_queue.put("<EOS>")  # Add end of stream token to the queue
+                
+                logger.info(f"Total LLM time: {time.time() - start_time}")
+            
             except queue.Empty:
                 time.sleep(PAUSE_TIME)
      
@@ -512,7 +520,6 @@ class Glados:
         while not self.shutdown_event.is_set():
             try:
                 detected_text = self.display_queue.get(timeout=PAUSE_TIME)
-                logger.error(f"EOS: {detected_text}")
                 self.projector.display_most_similar_image(detected_text)
               
             except queue.Empty:

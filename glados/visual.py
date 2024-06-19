@@ -4,19 +4,17 @@ from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
 from elasticsearch import Elasticsearch
 from loguru import logger
 import numpy as np
+from term_image.image import from_file
 import os 
 
 
 class Projector:
-    def __init__(self, model_name="openai/clip-vit-base-patch16", es_host='es-test.aws.primehub.io', 
-                 es_port=9200, es_scheme='http', es_http_auth=('elastic', 'K'), 
-                 index_name='image-text-search-v1', folder_path='./'):
+    def __init__(self, model_name="openai/clip-vit-base-patch16", es_host='es-test.aws.primehub.io', es_port=9200, es_scheme='http', es_http_auth=('elastic', 'Kdiv6rNWbhwCHKCi0xUdUA=='), index_name='image-text-search-v1', folder_path='./'):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model = AutoModel.from_pretrained(model_name).to(self.device)
         self.processor = AutoImageProcessor.from_pretrained(model_name)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.current_image = None
 
         # Connect to Elasticsearch
         self.es = Elasticsearch([{'host': es_host, 'port': es_port, 'scheme': es_scheme}],
@@ -61,8 +59,5 @@ class Projector:
         response = self.es.search(index=self.index_name, body=search_query)
         image_path = response['hits']['hits'][0]['_source']['content']
 
-        if self.current_image:
-            self.current_image.close()
-        logger.error(f"Image path: {image_path}")
-        self.current_image = Image.open(image_path)
-        self.current_image.show()
+        image = from_file(image_path)
+        image.draw()
